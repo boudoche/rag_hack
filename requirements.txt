@@ -18,3 +18,4 @@ llama-index-vector-stores-faiss
 langchain
 langchain-openai
 langchain-community
+chromadb

@@ -6,6 +6,9 @@ import orjson
 import numpy as np
 import faiss
 from openai import OpenAI
+from chromadb import Client
+from chromadb.config import Settings
+import uuid
 
 from .config import (
     OPENAI_API_KEY,
@@ -15,6 +18,7 @@ from .config import (
     CHUNK_TOKENS,
     CHUNK_OVERLAP,
     CHUNK_SENTENCE_AWARE,
+    CHROMA_DIR,
 )
 from .utils import chunk_text
 
@@ -167,4 +171,40 @@ class RAGIndex:
             cand_vecs = self.embedder.embed([h["text"] for h in hits])
             selected_rel = mmr(qv[0], cand_vecs, lambda_param=lambda_param, top_n=top_n or min(5, len(hits)))
             hits = [hits[i] for i in selected_rel]
+        return hits
+
+
+class ChromaIndex:
+    def __init__(self, embed_model: str = OPENAI_EMBED_MODEL, persist_dir: str = CHROMA_DIR):
+        self.embedder = OpenAIEmbedder(model=embed_model)
+        settings = Settings(chroma_db_impl="duckdb+parquet", persist_directory=persist_dir)
+        self.client = Client(settings)
+        self.collection = self.client.get_or_create_collection(name="rag_collection")
+
+    def add_documents(self, docs, chunk_tokens=CHUNK_TOKENS, overlap=CHUNK_OVERLAP):
+        chunks = []
+        for d in docs:
+            for ch in chunk_text(d["text"], max_tokens=chunk_tokens, overlap=overlap, use_sentences=True):
+                meta = dict(d["metadata"])
+                meta["chunk_size"] = len(ch.split())
+                chunks.append({"text": ch, "metadata": meta})
+        if not chunks: return {"added": 0}
+        texts = [c["text"] for c in chunks]
+        embeddings = self.embedder.embed(texts)
+        ids = [str(uuid.uuid4()) for _ in chunks]
+        self.collection.add(
+            ids=ids,
+            embeddings=embeddings.tolist(),
+            documents=texts,
+            metadatas=[c["metadata"] for c in chunks],
+        )
+        self.client.persist()
+        return {"added": len(chunks)}
+
+    def search(self, query: str, k: int = 5):
+        qvec = self.embedder.embed([query])
+        results = self.collection.query(query_embeddings=qvec.tolist(), n_results=k)
+        hits = []
+        for doc, meta in zip(results.get("documents", [[]])[0], results.get("metadatas", [[]])[0]):
+            hits.append({"text": doc, "metadata": meta})
         return hits

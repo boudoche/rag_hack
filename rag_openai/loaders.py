@@ -50,6 +50,14 @@ def load_pdf(path: Path) -> List[Dict[str, Any]]:
 
 
 def load_image(path: Path) -> List[Dict[str, Any]]:
+    docs: List[Dict[str, Any]] = []
+    caption = caption_image_with_openai(path)
+    if caption:
+        docs.append({
+            "text": caption,
+            "metadata": {"source": str(path), "type": "image", "method": "vision"},
+        })
+        return docs
     if Image is None or pytesseract is None:
         return []
     try:
@@ -237,3 +245,32 @@ def ingest_directory(root: Path, *, verbose: bool = False) -> List[Dict[str, Any
     if verbose:
         print(f"[ingest:done] Total logical documents: {len(docs)}")
     return docs
+
+    import base64
+from openai import OpenAI
+from .config import OPENAI_API_KEY, OPENAI_VISION_MODEL
+
+def caption_image_with_openai(path: Path) -> str:
+    if not OPENAI_API_KEY:
+        return ""
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    with open(path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("utf-8")
+    uri = f"data:image/{path.suffix.lstrip('.').lower()};base64,{b64}"
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant that describes images."},
+        {
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": uri}},
+                {"type": "text", "text": "Provide a concise description of this image in one or two sentences."},
+            ],
+        },
+    ]
+    resp = client.chat.completions.create(
+        model=OPENAI_VISION_MODEL,
+        messages=messages,
+        temperature=0.0,
+        max_tokens=150,
+    )
+    return resp.choices[0].message.content.strip()

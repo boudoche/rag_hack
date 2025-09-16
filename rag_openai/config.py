@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "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")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_EMBED_MODEL = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
 OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
 
